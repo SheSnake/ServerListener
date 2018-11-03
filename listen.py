@@ -3,6 +3,7 @@ import time
 import smtplib
 import json
 import arrow
+import asyncio
 from email.mime.text import MIMEText
 from email.header import Header
 
@@ -41,6 +42,7 @@ class ServerListen(object):
         self.server = dict()
         self.port_map = dict()
         self.suspect_connect = dict()
+        self.loop = asyncio.new_event_loop()
 
         for k,v in services.items():
             self.server[k] = set()
@@ -51,7 +53,7 @@ class ServerListen(object):
         self.email_sender = EmailSender(email_user, email_pwd, email_host)
         self.receiver = receiver
 
-    def poll(self):
+    async def poll(self):
         conns = get_tcp_connection()
         current_client = dict()
         for k in self.server:
@@ -81,7 +83,7 @@ class ServerListen(object):
                     current_client[server_name].add(user_host)
                 elif user_host in self.suspect_connect[server_name]:
                     now = arrow.utcnow().timestamp
-                    if len(self.suspect_connect[server_name][user_host]) >= 30*2:
+                    if len(self.suspect_connect[server_name][user_host]) >= 12*2:
                         # new confirm connect
                         self.notify(server, server_name, user, status)
                         current_client[server_name].add(user_host)
@@ -98,8 +100,13 @@ class ServerListen(object):
             self.server[k] = current_client[k]
 
         print(self.server)
-        time.sleep(2)
-        self.poll()
+        await asyncio.sleep(2)
+        asyncio.ensure_future(self.poll(), loop=self.loop)
+
+    def run(self):
+        asyncio.ensure_future(self.poll(), loop=self.loop)
+        self.loop.run_forever()
+
 
 
     def notify(self, server, sn, user, status):
@@ -114,6 +121,6 @@ class ServerListen(object):
 if __name__ == '__main__':
     config = json.loads(open('config.json', 'r').read())
     listener = ServerListen(**config)
-    listener.poll()
+    listener.run()
 
 
