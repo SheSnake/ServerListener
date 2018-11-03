@@ -1,0 +1,9 @@
+{
+	"email_user":"***@163.com",
+	"email_pwd":"****",
+	"email_host":"smtp.163.com",
+	"receiver":"******@163.com",
+	"services": {
+		"ssh":"22",
+	}
+}
