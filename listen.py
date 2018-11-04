@@ -4,6 +4,8 @@ import smtplib
 import json
 import arrow
 import asyncio
+import logzero
+from logzero import logger
 from email.mime.text import MIMEText
 from email.header import Header
 
@@ -30,10 +32,10 @@ class EmailSender(object):
             res = smtpObj.sendmail(self.user, receiver, message.as_string())
             return True
         except smtplib.SMTPException as e:
-            print('error {}'.format(e))
+            logger.error('error {}'.format(e))
             return False
         except Exception as e:
-            print('other error {}'.format(e))
+            logger.error('other error {}'.format(e))
             return False
 
 
@@ -64,42 +66,47 @@ class ServerListen(object):
         for k,v in self.suspect_connect.items():
             for host,times in v.items():
                 now = arrow.utcnow().timestamp
-                if now - self.suspect_connect[k][host][-1] > 60*3:
+                if now - self.suspect_connect[k][host][-1] > 60 * 3:
                     need_del.add((k,host))
 
         for (k, host) in need_del: 
             del self.suspect_connect[k][host]
-            print('del suspect {} {}'.format(k, host))
+            logger.info('del suspect {} {}'.format(k, host))
 
         # update conn info
         for conn in conns:
-            server, user, status = conn.split(' ')
-            server_port = server.split(':')[-1]
-            user_host = user.split(':')[0]
-            if status != 'ESTABLISHED': continue
-            if server_port in self.port_map:
-                server_name = self.port_map[server_port]
-                if user_host in self.server[server_name]: 
-                    current_client[server_name].add(user_host)
-                elif user_host in self.suspect_connect[server_name]:
-                    now = arrow.utcnow().timestamp
-                    if len(self.suspect_connect[server_name][user_host]) >= 12*2:
-                        # new confirm connect
-                        self.notify(server, server_name, user, status)
+            try:
+                server, user, status = conn.split(' ')
+                server_port = server.split(':')[-1]
+                user_host = user.split(':')[0]
+                if status != 'ESTABLISHED': continue
+                if server_port in self.port_map:
+                    server_name = self.port_map[server_port]
+                    if user_host in self.server[server_name]: 
                         current_client[server_name].add(user_host)
-                        del self.suspect_connect[server_name][user_host]
+                    elif user_host in self.suspect_connect[server_name]:
+                        now = arrow.utcnow().timestamp
+                        if len(self.suspect_connect[server_name][user_host]) >= 12*2:
+                            # new confirm connect
+                            self.notify(server, server_name, user, status)
+                            current_client[server_name].add(user_host)
+                            del self.suspect_connect[server_name][user_host]
+                        else:
+                            # new suspect connect
+                            self.suspect_connect[server_name][user_host].append(now)
                     else:
-                        # new suspect connect
-                        self.suspect_connect[server_name][user_host].append(now)
-                else:
-                    # suspect connect
-                    self.suspect_connect[server_name][user_host] = [arrow.utcnow().timestamp]
-                    print('suspect connect {} {}'.format(server, user))
+                        # suspect connect
+                        self.suspect_connect[server_name][user_host] = [arrow.utcnow().timestamp]
+                        logger.info('suspect connect {} {}'.format(server, user))
+            except Exception as e:
+                msg = 'parser port info error, reason:{}, info:{}'.format(e, conn)
+                logger.error(msg)
 
         for k in self.server:
             self.server[k] = current_client[k]
 
-        print(self.server)
+        logger.info(self.server)
+
         await asyncio.sleep(2)
         asyncio.ensure_future(self.poll(), loop=self.loop)
 
@@ -112,13 +119,17 @@ class ServerListen(object):
     def notify(self, server, sn, user, status):
         msg = '<p>Service: {}({})</p> <p>New Connected By: {}</p> <p>Time: {}</p>'.format(server, sn, user, arrow.utcnow())
         self.email_sender.send(msg, self.receiver)
-        print('send msg:{}'.format(msg))
+        logger.info('send msg:{}'.format(msg))
 
 
                 
 
 
 if __name__ == '__main__':
+    logzero.formatter(logzero.LogFormatter(
+        fmt='%(color)s[%(levelname)1.1s %(asctime)s %(module)s:%(lineno)d]%(end_color)s %(message)s'
+        )
+    )
     config = json.loads(open('config.json', 'r').read())
     listener = ServerListen(**config)
     listener.run()
