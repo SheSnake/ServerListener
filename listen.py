@@ -104,14 +104,15 @@ class ServerListen(object):
                 msg = 'parser port info error, reason:{}, info:{}'.format(e, conn)
                 logger.error(msg)
 
-        for k,clients in self.server.items():
-            for client in clients:
+        for k,clients in dict(self.server).items():
+            for client in list(clients):
                 if not (client in current_client[k]):
                     self.lost_client[k][client] = self.lost_client[k][client]+1 if client in self.lost_client[k] else 0
                 else:
                     self.lost_client[k][client] = 0
 
                 if  self.lost_client[k][client] > 30:
+                    del self.lost_client[k][client]
                     self.server[k].remove(client)
 
             self.server[k].update(current_client[k])
