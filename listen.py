@@ -42,12 +42,14 @@ class EmailSender(object):
 class ServerListen(object):
     def __init__(self, email_user, email_pwd, email_host, receiver, services):
         self.server = dict()
+        self.lost_client = dict()
         self.port_map = dict()
         self.suspect_connect = dict()
         self.loop = asyncio.new_event_loop()
 
         for k,v in services.items():
             self.server[k] = set()
+            self.lost_client[k] = dict()
             self.port_map[v] = k
             self.port_map[k] = k
             self.suspect_connect[k] = dict()
@@ -102,10 +104,19 @@ class ServerListen(object):
                 msg = 'parser port info error, reason:{}, info:{}'.format(e, conn)
                 logger.error(msg)
 
-        for k in self.server:
-            self.server[k] = current_client[k]
+        for k,clients in self.server.items():
+            for client in clients:
+                if not (client in current_client[k]):
+                    self.lost_client[k][client] = self.lost_client[k][client]+1 if client in self.lost_client[k] else 0
+                else:
+                    self.lost_client[k][client] = 0
 
-        logger.info(self.server)
+                if  self.lost_client[k][client] > 30:
+                    self.server[k].remove(client)
+
+            self.server[k].update(current_client[k])
+
+        logger.info({'client_status': self.lost_client})
 
         await asyncio.sleep(2)
         asyncio.ensure_future(self.poll(), loop=self.loop)
